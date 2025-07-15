@@ -5,14 +5,11 @@ import fs from 'fs/promises';
 import path from 'path';
 import { PDFDocument } from 'pdf-lib';
 import pkg from 'pdfjs-dist';
-const { getDocument, GlobalWorkerOptions } = pkg;
-
-// Set the worker source to a local file served by Express
-GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
+const { getDocument } = pkg;
 
 const app = express();
 app.use(cors());
-app.use(express.static('public'));
+app.use(express.static(path.join(process.cwd(), 'public')));
 app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
 
 // Ensure necessary directories exist
@@ -65,8 +62,8 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     // Load PDF with pdf-lib for cropping
     const srcPdf = await PDFDocument.load(srcBytes);
 
-    // Load PDF with pdfjs-dist for text extraction
-    const pdfjsDoc = await getDocument({ data: srcBytesArray }).promise;
+    // Load PDF with pdfjs-dist for text extraction, disabling worker
+    const pdfjsDoc = await getDocument({ data: srcBytesArray, disableWorker: true }).promise;
 
     // Log original page size
     const p0 = srcPdf.getPage(0);
