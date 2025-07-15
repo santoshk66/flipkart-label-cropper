@@ -7,8 +7,8 @@ import { PDFDocument } from 'pdf-lib';
 import pkg from 'pdfjs-dist';
 const { getDocument, GlobalWorkerOptions } = pkg;
 
-// Set the worker source for pdfjs-dist (use CDN for simplicity)
-GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+// Set the worker source to a local file served by Express
+GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 const app = express();
 app.use(cors());
@@ -38,6 +38,18 @@ const DEFAULT_CROP = {
   invoice: { x: 50, y: 350, width: 495, height: 442 } // Bottom section for invoices
 };
 
+// Validate crop coordinates
+function validateCrop(crop, pageWidth = 595, pageHeight = 842) {
+  const { x, y, width, height } = crop;
+  if (x < 0 || y < 0 || width <= 0 || height <= 0) {
+    throw new Error('Crop coordinates must be positive and non-zero');
+  }
+  if (x + width > pageWidth || y + height > pageHeight) {
+    throw new Error(`Crop coordinates exceed page bounds (${pageWidth}x${pageHeight})`);
+  }
+  return { x, y, width, height };
+}
+
 // Upload endpoint: crops labels and invoices, alternates in output PDF
 app.post('/upload', upload.single('pdf'), async (req, res) => {
   try {
@@ -58,21 +70,24 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
 
     // Log original page size
     const p0 = srcPdf.getPage(0);
-    console.log(`Original page size: ${p0.getWidth()}pt × ${p0.getHeight()}pt`);
+    const pageWidth = p0.getWidth();
+    const pageHeight = p0.getHeight();
+    console.log(`Original page size: ${pageWidth}pt × ${pageHeight}pt`);
 
     // Get custom crop coordinates from query parameters (if provided)
-    const labelCrop = {
+    const labelCrop = validateCrop({
       x: parseFloat(req.query.labelX) || DEFAULT_CROP.label.x,
       y: parseFloat(req.query.labelY) || DEFAULT_CROP.label.y,
       width: parseFloat(req.query.labelWidth) || DEFAULT_CROP.label.width,
       height: parseFloat(req.query.labelHeight) || DEFAULT_CROP.label.height
-    };
-    const invoiceCrop = {
+    }, pageWidth, pageHeight);
+
+    const invoiceCrop = validateCrop({
       x: parseFloat(req.query.invoiceX) || DEFAULT_CROP.invoice.x,
       y: parseFloat(req.query.invoiceY) || DEFAULT_CROP.invoice.y,
       width: parseFloat(req.query.invoiceWidth) || DEFAULT_CROP.invoice.width,
       height: parseFloat(req.query.invoiceHeight) || DEFAULT_CROP.invoice.height
-    };
+    }, pageWidth, pageHeight);
 
     const outputPdf = await PDFDocument.create();
 
