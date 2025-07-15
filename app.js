@@ -31,8 +31,8 @@ const upload = multer({
 
 // Default crop boxes (in points, assuming A4 input: 595x842)
 const DEFAULT_CROP = {
-  label: { x: 30, y: 30, width: 535, height: 320 }, // Adjusted for full label
-  invoice: { x: 30, y: 360, width: 535, height: 462 } // Adjusted for full invoice
+  label: { x: 30, y: 30, width: 535, height: 320 },
+  invoice: { x: 30, y: 360, width: 535, height: 462 }
 };
 
 // Validate crop coordinates
@@ -65,19 +65,19 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     const pageHeight = p0.getHeight();
     console.log(`Original page size: ${pageWidth}pt × ${pageHeight}pt`);
 
-    // Get custom crop coordinates from query parameters (if provided)
+    // Get crop coordinates from form data
     const labelCrop = validateCrop({
-      x: parseFloat(req.query.labelX) || DEFAULT_CROP.label.x,
-      y: parseFloat(req.query.labelY) || DEFAULT_CROP.label.y,
-      width: parseFloat(req.query.labelWidth) || DEFAULT_CROP.label.width,
-      height: parseFloat(req.query.labelHeight) || DEFAULT_CROP.label.height
+      x: parseFloat(req.body.labelX) || DEFAULT_CROP.label.x,
+      y: parseFloat(req.body.labelY) || DEFAULT_CROP.label.y,
+      width: parseFloat(req.body.labelWidth) || DEFAULT_CROP.label.width,
+      height: parseFloat(req.body.labelHeight) || DEFAULT_CROP.label.height
     }, pageWidth, pageHeight);
 
     const invoiceCrop = validateCrop({
-      x: parseFloat(req.query.invoiceX) || DEFAULT_CROP.invoice.x,
-      y: parseFloat(req.query.invoiceY) || DEFAULT_CROP.invoice.y,
-      width: parseFloat(req.query.invoiceWidth) || DEFAULT_CROP.invoice.width,
-      height: parseFloat(req.query.invoiceHeight) || DEFAULT_CROP.invoice.height
+      x: parseFloat(req.body.invoiceX) || DEFAULT_CROP.invoice.x,
+      y: parseFloat(req.body.invoiceY) || DEFAULT_CROP.invoice.y,
+      width: parseFloat(req.body.invoiceWidth) || DEFAULT_CROP.invoice.width,
+      height: parseFloat(req.body.invoiceHeight) || DEFAULT_CROP.invoice.height
     }, pageWidth, pageHeight);
 
     const outputPdf = await PDFDocument.create();
@@ -90,7 +90,7 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
       const text = textContent.items.map(item => item.str).join(' ').toLowerCase();
 
       // Skip pages with minimal or irrelevant content
-      if (text.length < 50 || text.includes('e. & o.e.') && !text.includes('soni singh') && !text.includes('tax invoice')) {
+      if (text.length < 50 || (text.includes('e. & o.e.') && !text.includes('soni singh') && !text.includes('tax invoice'))) {
         console.log(`Skipping page ${i + 1}: insufficient content (${text.length} chars)`);
         continue;
       }
