@@ -126,14 +126,12 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
       const [labelPage] = await outputPdf.copyPages(srcPdf, [i]);
       const [invoicePage] = await outputPdf.copyPages(srcPdf, [i]);
 
-      // Crop and scale label
+      // Crop and set page size for label
       if (isLabel) {
         try {
           labelPage.setCropBox(labelCrop.x, labelCrop.y, labelCrop.width, labelCrop.height);
           labelPage.setMediaBox(0, 0, labelCrop.width, labelCrop.height);
-          const labelScale = Math.min(2126 / labelCrop.width, 3543 / labelCrop.height);
-          console.log(`Label page ${i + 1} scale: ${labelScale}, crop: x=${labelCrop.x}, y=${labelCrop.y}, w=${labelCrop.width}, h=${labelCrop.height}`);
-          labelPage.scale(labelScale, labelScale);
+          console.log(`Label page ${i + 1} crop: x=${labelCrop.x}, y=${labelCrop.y}, w=${labelCrop.width}, h=${labelCrop.height}`);
           outputPdf.addPage(labelPage);
           validPages++;
           console.log(`Added label page ${i + 1}`);
@@ -143,14 +141,12 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
         }
       }
 
-      // Crop and scale invoice
+      // Crop and set page size for invoice
       if (isInvoice) {
         try {
           invoicePage.setCropBox(invoiceCrop.x, invoiceCrop.y, invoiceCrop.width, invoiceCrop.height);
           invoicePage.setMediaBox(0, 0, invoiceCrop.width, invoiceCrop.height);
-          const invoiceScale = Math.min(2126 / invoiceCrop.width, 3543 / invoiceCrop.height);
-          console.log(`Invoice page ${i + 1} scale: ${invoiceScale}, crop: x=${invoiceCrop.x}, y=${invoiceCrop.y}, w=${invoiceCrop.width}, h=${invoiceCrop.height}`);
-          invoicePage.scale(invoiceScale, invoiceScale);
+          console.log(`Invoice page ${i + 1} crop: x=${invoiceCrop.x}, y=${invoiceCrop.y}, w=${invoiceCrop.width}, h=${invoiceCrop.height}`);
           outputPdf.addPage(invoicePage);
           validPages++;
           console.log(`Added invoice page ${i + 1}`);
