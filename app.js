@@ -9,9 +9,9 @@ const app = express();
 app.use(cors());
 app.use(express.static('public'));
 
-const targetFolders = ['uploads', 'outputs'];
 async function ensureDirs() {
-  await Promise.all(targetFolders.map(dir =>
+  const dirs = ['uploads', 'outputs'];
+  await Promise.all(dirs.map(dir =>
     fs.mkdir(path.join(process.cwd(), dir), { recursive: true })
   ));
 }
@@ -35,22 +35,35 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     const invoicesPdf = await PDFDocument.create();
 
     for (let i = 0; i < srcPdf.getPageCount(); i++) {
-      const [srcPage] = await labelsPdf.copyPages(srcPdf, [i]);
+      const [labelPage] = await labelsPdf.copyPages(srcPdf, [i]);
       const [invPage] = await invoicesPdf.copyPages(srcPdf, [i]);
 
-      srcPage.setCropBox(LABEL_CROP.x, LABEL_CROP.y, LABEL_CROP.width, LABEL_CROP.height);
-      srcPage.setMediaBox(0, 0, LABEL_CROP.width, LABEL_CROP.height);
-      labelsPdf.addPage(srcPage);
+      // Crop for label
+      labelPage.setCropBox(
+        LABEL_CROP.x,
+        LABEL_CROP.y,
+        LABEL_CROP.width,
+        LABEL_CROP.height
+      );
+      labelPage.setMediaBox(0, 0, LABEL_CROP.width, LABEL_CROP.height);
+      labelsPdf.addPage(labelPage);
 
-      invPage.setCropBox(INVOICE_CROP.x, INVOICE_CROP.y, INVOICE_CROP.width, INVOICE_CROP.height);
+      // Crop for invoice
+      invPage.setCropBox(
+        INVOICE_CROP.x,
+        INVOICE_CROP.y,
+        INVOICE_CROP.width,
+        INVOICE_CROP.height
+      );
       invPage.setMediaBox(0, 0, INVOICE_CROP.width, INVOICE_CROP.height);
       invoicesPdf.addPage(invPage);
     }
 
     const labelsBytes = await labelsPdf.save();
     const invBytes = await invoicesPdf.save();
-    const labelsPath = path.join('outputs', \`labels_\${Date.now()}.pdf\`);
-    const invPath = path.join('outputs', \`invoices_\${Date.now()}.pdf\`);
+
+    const labelsPath = path.join('outputs', 'labels_' + Date.now() + '.pdf');
+    const invPath = path.join('outputs', 'invoices_' + Date.now() + '.pdf');
     await fs.writeFile(labelsPath, labelsBytes);
     await fs.writeFile(invPath, invBytes);
 
@@ -61,7 +74,8 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
 ensureDirs()
-  .then(() => app.listen(PORT, () => console.log(\`Server running on port \${PORT}\`)))
-  .catch(err => console.error('Error initializing directories', err));
+  .then(() => app.listen(process.env.PORT || 3000, () =>
+    console.log('Server running on port', process.env.PORT || 3000)
+  ))
+  .catch(err => console.error('Dir init error', err));
