@@ -115,7 +115,7 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
 
       // Crop and scale label
       if (isLabel) {
-        labelPage.setCropBox(labelCrop.x, pageHeight - labelCrop.y - labelCrop.height, labelCrop.width, labelCrop.height);
+        labelPage.setCropBox(labelCrop.x, labelCrop.y, labelCrop.width, labelCrop.height);
         labelPage.setMediaBox(0, 0, labelCrop.width, labelCrop.height);
         const labelScale = Math.min(2126 / labelCrop.width, 3543 / labelCrop.height);
         labelPage.scale(labelScale, labelScale);
@@ -126,7 +126,7 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
 
       // Crop and scale invoice
       if (isInvoice) {
-        invoicePage.setCropBox(invoiceCrop.x, pageHeight - invoiceCrop.y - invoiceCrop.height, invoiceCrop.width, invoiceCrop.height);
+        invoicePage.setCropBox(invoiceCrop.x, invoiceCrop.y, invoiceCrop.width, invoiceCrop.height);
         invoicePage.setMediaBox(0, 0, invoiceCrop.width, invoiceCrop.height);
         const invoiceScale = Math.min(2126 / invoiceCrop.width, 3543 / invoiceCrop.height);
         invoicePage.scale(invoiceScale, invoiceScale);
