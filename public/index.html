@@ -3,89 +3,185 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Flipkart Label & Invoice Cropper</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>PDF Cropper</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; }
+    .form-group { margin-bottom: 15px; }
+    label { display: inline-block; width: 150px; }
+    input[type="file"] { margin: 10px 0; }
+    button { padding: 10px 20px; margin: 5px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+    button:hover { background-color: #45a049; }
+    button:disabled { background-color: #cccccc; cursor: not-allowed; }
+    #canvasContainer { position: relative; border: 1px solid #ccc; margin: 10px 0; }
+    #pdfCanvas { display: block; }
+    #labelRect, #invoiceRect { position: absolute; border: 2px solid; pointer-events: none; }
+    #labelRect { border-color: blue; }
+    #invoiceRect { border-color: red; }
+    #result { margin-top: 20px; }
+    .error { color: red; }
+    .success { color: green; }
+  </style>
 </head>
-<body class="p-8 bg-gray-100">
-  <h1 class="text-2xl font-bold mb-4">Upload Flipkart PDF</h1>
-  <form id="uploadForm" enctype="multipart/form-data" class="bg-white p-6 rounded shadow-md">
-    <div class="mb-4">
-      <label class="block text-sm font-medium mb-2">Select PDF File</label>
-      <input type="file" name="pdf" accept="application/pdf" required class="border p-2 w-full" />
+<body>
+  <h1>PDF Cropper</h1>
+  <form id="uploadForm" enctype="multipart/form-data">
+    <div class="form-group">
+      <label>PDF File:</label>
+      <input type="file" name="pdf" accept=".pdf" required>
     </div>
-    <div class="grid grid-cols-2 gap-4 mb-4">
-      <div>
-        <h2 class="text-lg font-semibold">Label Crop Coordinates</h2>
-        <label class="block text-sm">X:</label>
-        <input type="number" name="labelX" value="50" min="0" class="border p-2 w-full" />
-        <label class="block text-sm">Y:</label>
-        <input type="number" name="labelY" value="50" min="0" class="border p-2 w-full" />
-        <label class="block text-sm">Width:</label>
-        <input type="number" name="labelWidth" value="495" min="1" class="border p-2 w-full" />
-        <label class="block text-sm">Height:</label>
-        <input type="number" name="labelHeight" value="300" min="1" class="border p-2 w-full" />
-      </div>
-      <div>
-        <h2 class="text-lg font-semibold">Invoice Crop Coordinates</h2>
-        <label class="block text-sm">X:</label>
-        <input type="number" name="invoiceX" value="50" min="0" class="border p-2 w-full" />
-        <label class="block text-sm">Y:</label>
-        <input type="number" name="invoiceY" value="350" min="0" class="border p-2 w-full" />
-        <label class="block text-sm">Width:</label>
-        <input type="number" name="invoiceWidth" value="495" min="1" class="border p-2 w-full" />
-        <label class="block text-sm">Height:</label>
-        <input type="number" name="invoiceHeight" value="442" min="1" class="border p-2 w-full" />
-      </div>
+    <button type="button" id="loadPdf">Load PDF Preview</button>
+    <div id="canvasContainer">
+      <canvas id="pdfCanvas"></canvas>
+      <div id="labelRect"></div>
+      <div id="invoiceRect"></div>
     </div>
-    <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Upload & Crop</button>
+    <div class="form-group">
+      <button type="button" id="selectLabel">Select Label Crop</button>
+      <button type="button" id="selectInvoice">Select Invoice Crop</button>
+      <button type="submit" id="processPdf" disabled>Process PDF</button>
+    </div>
   </form>
-  <div id="links" class="mt-6"></div>
+  <div id="result"></div>
 
   <script>
-    const form = document.getElementById('uploadForm');
-    const linksDiv = document.getElementById('links');
+    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
 
+    let pdfDoc = null;
+    let isSelecting = false;
+    let startX, startY;
+    let labelCrop = null;
+    let invoiceCrop = null;
+    let selectingType = null;
+    let canvasScale = 1;
+
+    const canvas = document.getElementById('pdfCanvas');
+    const ctx = canvas.getContext('2d');
+    const labelRect = document.getElementById('labelRect');
+    const invoiceRect = document.getElementById('invoiceRect');
+    const loadPdfBtn = document.getElementById('loadPdf');
+    const selectLabelBtn = document.getElementById('selectLabel');
+    const selectInvoiceBtn = document.getElementById('selectInvoice');
+    const processPdfBtn = document.getElementById('processPdf');
+    const form = document.getElementById('uploadForm');
+    const resultDiv = document.getElementById('result');
+
+    // Load and render first PDF page
+    loadPdfBtn.addEventListener('click', async () => {
+      const fileInput = form.querySelector('input[name="pdf"]');
+      if (!fileInput.files[0]) {
+        resultDiv.innerHTML = '<p class="error">Please select a PDF file</p>';
+        return;
+      }
+      const file = fileInput.files[0];
+      const arrayBuffer = await file.arrayBuffer();
+      pdfDoc = await pdfjsLib.getDocument(arrayBuffer).promise;
+      const page = await pdfDoc.getPage(1);
+      const viewport = page.getViewport({ scale: 1 });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvasScale = Math.min(800 / viewport.width, 1); // Fit to 800px width
+      canvas.style.width = `${viewport.width * canvasScale}px`;
+      canvas.style.height = `${viewport.height * canvasScale}px`;
+      await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: canvasScale }) }).promise;
+      selectLabelBtn.disabled = false;
+      selectInvoiceBtn.disabled = false;
+      resultDiv.innerHTML = '<p>PDF loaded. Click "Select Label Crop" or "Select Invoice Crop" to define crop areas.</p>';
+    });
+
+    // Mouse event handlers for crop selection
+    canvas.addEventListener('mousedown', (e) => {
+      if (!selectingType) return;
+      isSelecting = true;
+      const rect = canvas.getBoundingClientRect();
+      startX = (e.clientX - rect.left) / canvasScale;
+      startY = (e.clientY - rect.top) / canvasScale;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!isSelecting) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / canvasScale;
+      const y = (e.clientY - rect.top) / canvasScale;
+      const width = x - startX;
+      const height = y - startY;
+      const targetRect = selectingType === 'label' ? labelRect : invoiceRect;
+      targetRect.style.left = `${Math.min(startX, x) * canvasScale}px`;
+      targetRect.style.top = `${Math.min(startY, y) * canvasScale}px`;
+      targetRect.style.width = `${Math.abs(width) * canvasScale}px`;
+      targetRect.style.height = `${Math.abs(height) * canvasScale}px`;
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      if (!isSelecting) return;
+      isSelecting = false;
+      const rect = canvas.getBoundingClientRect();
+      const endX = (event.clientX - rect.left) / canvasScale;
+      const endY = (event.clientY - rect.top) / canvasScale;
+      const crop = {
+        x: Math.min(startX, endX),
+        y: Math.min(startY, endY),
+        width: Math.abs(endX - startX),
+        height: Math.abs(endY - startY)
+      };
+      if (selectingType === 'label') {
+        labelCrop = crop;
+        selectLabelBtn.disabled = true;
+      } else {
+        invoiceCrop = crop;
+        selectInvoiceBtn.disabled = true;
+      }
+      if (labelCrop && invoiceCrop) processPdfBtn.disabled = false;
+      selectingType = null;
+    });
+
+    selectLabelBtn.addEventListener('click', () => {
+      selectingType = 'label';
+      resultDiv.innerHTML = '<p>Click and drag on the canvas to select the label crop area.</p>';
+    });
+
+    selectInvoiceBtn.addEventListener('click', () => {
+      selectingType = 'invoice';
+      resultDiv.innerHTML = '<p>Click and drag on the canvas to select the invoice crop area.</p>';
+    });
+
+    // Submit form with crop coordinates
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      linksDiv.innerHTML = '<p class="text-gray-600">Processing…</p>';
-
+      if (!labelCrop || !invoiceCrop) {
+        resultDiv.innerHTML = '<p class="error">Please select both label and invoice crop areas.</p>';
+        return;
+      }
       const formData = new FormData(form);
-      const queryParams = new URLSearchParams({
-        labelX: formData.get('labelX'),
-        labelY: formData.get('labelY'),
-        labelWidth: formData.get('labelWidth'),
-        labelHeight: formData.get('labelHeight'),
-        invoiceX: formData.get('invoiceX'),
-        invoiceY: formData.get('invoiceY'),
-        invoiceWidth: formData.get('invoiceWidth'),
-        invoiceHeight: formData.get('invoiceHeight')
-      });
-
+      formData.append('labelX', labelCrop.x);
+      formData.append('labelY', labelCrop.y);
+      formData.append('labelWidth', labelCrop.width);
+      formData.append('labelHeight', labelCrop.height);
+      formData.append('invoiceX', invoiceCrop.x);
+      formData.append('invoiceY', invoiceCrop.y);
+      formData.append('invoiceWidth', invoiceCrop.width);
+      formData.append('invoiceHeight', invoiceCrop.height);
+      resultDiv.innerHTML = '<p>Processing...</p>';
       try {
-        const res = await fetch(`/upload?${queryParams}`, {
+        const response = await fetch('/upload', {
           method: 'POST',
           body: formData
         });
-        const data = await res.json();
-        linksDiv.innerHTML = '';
-
-        if (data.file) {
-          const link = document.createElement('a');
-          link.href = data.file;
-          link.textContent = 'Download Alternating Label & Invoice PDF';
-          link.target = '_blank';
-          link.className = 'text-blue-500 hover:underline';
-          linksDiv.appendChild(link);
-
-          const coordsInfo = document.createElement('p');
-          coordsInfo.className = 'text-sm text-gray-600 mt-2';
-          coordsInfo.textContent = `Label Crop: X=${data.cropUsed.labelCrop.x}, Y=${data.cropUsed.labelCrop.y}, Width=${data.cropUsed.labelCrop.width}, Height=${data.cropUsed.labelCrop.height} | Invoice Crop: X=${data.cropUsed.invoiceCrop.x}, Y=${data.cropUsed.invoiceCrop.y}, Width=${data.cropUsed.invoiceCrop.width}, Height=${data.cropUsed.invoiceCrop.height}`;
-          linksDiv.appendChild(coordsInfo);
-        } else if (data.error) {
-          linksDiv.innerHTML = `<p class="text-red-500">Error: ${data.error}</p>`;
+        const data = await response.json();
+        if (data.error) {
+          resultDiv.innerHTML = `<p class="error">Error: ${data.error}</p>`;
+        } else {
+          resultDiv.innerHTML = `
+            <p class="success">PDF processed successfully!</p>
+            <p><a href="${data.file}" download>Download Output PDF</a></p>
+            <p>Pages processed: ${data.pagesProcessed}</p>
+            <p>Label Crop: X=${data.cropUsed.labelCrop.x}, Y=${data.cropUsed.labelCrop.y}, Width=${data.cropUsed.labelCrop.width}, Height=${data.cropUsed.labelCrop.height}</p>
+            <p>Invoice Crop: X=${data.cropUsed.invoiceCrop.x}, Y=${data.cropUsed.invoiceCrop.y}, Width=${data.cropUsed.invoiceCrop.width}, Height=${data.cropUsed.invoiceCrop.height}</p>
+          `;
         }
       } catch (err) {
-        linksDiv.innerHTML = `<p class="text-red-500">Upload failed: ${err.message}</p>`;
+        resultDiv.innerHTML = `<p class="error">Error: ${err.message}</p>`;
       }
     });
   </script>
