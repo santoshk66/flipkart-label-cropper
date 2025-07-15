@@ -26,54 +26,48 @@ const upload = multer({
   }
 });
 
-app.post('/upload', upload.single('pdf'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'Please upload a PDF file under field name "pdf"' });
-    const srcBytes = await fs.readFile(req.file.path);
-    const srcPdf = await PDFDocument.load(srcBytes);
+--- a/app.js
++++ b/app.js
+@@ app.post('/upload', upload.single('pdf'), async (req, res) => {
+-    const srcPdf = await PDFDocument.load(srcBytes);
++    const srcPdf = await PDFDocument.load(srcBytes);
+
++    // 👉 Log this once so you confirm the page is 216×355pt
++    const p0 = srcPdf.getPage(0);
++    console.log(`Original page size: ${p0.getWidth()}pt × ${p0.getHeight()}pt`);
+
++    // 👉 Exact crop boxes (in PDF points) for your shipping label & invoice.
++    //    Adjust these if your “Tax Invoice” heading sits a little higher/lower.
++    const LABEL_CROP   = { x: 0, y: 231, width: 216, height: 124 };
++    const INVOICE_CROP = { x: 0, y:   0, width: 216, height: 231 };
+
     const outputPdf = await PDFDocument.create();
 
     for (let i = 0; i < srcPdf.getPageCount(); i++) {
-      // Copy original page twice
-      const [labelPage] = await outputPdf.copyPages(srcPdf, [i]);
+      // copy the original page twice
+      const [labelPage]   = await outputPdf.copyPages(srcPdf, [i]);
       const [invoicePage] = await outputPdf.copyPages(srcPdf, [i]);
 
-      const orig = srcPdf.getPage(i);
-      const width = orig.getWidth();
-      const height = orig.getHeight();
-      // Adjust these based on measured crop regions
-      const LABEL_CROP = { x: 0,    y: 0, width: 250, height: 841 };
-      const INV_CROP   = { x: 250,  y: 0, width: 345, height: 841 };
-
-      // Crop label (first)
+      // 1️⃣ Crop out **only** the label block
       labelPage.setCropBox(
         LABEL_CROP.x, LABEL_CROP.y,
         LABEL_CROP.width, LABEL_CROP.height
       );
-
       labelPage.setMediaBox(0, 0, LABEL_CROP.width, LABEL_CROP.height);
       outputPdf.addPage(labelPage);
 
-      // Crop invoice (second)
+      // 2️⃣ Crop out **only** the invoice block
       invoicePage.setCropBox(
-        INV_CROP.x, INV_CROP.y,
-        INV_CROP.width, INV_CROP.height
+        INVOICE_CROP.x, INVOICE_CROP.y,
+        INVOICE_CROP.width, INVOICE_CROP.height
       );
-      invoicePage.setMediaBox(0, 0, INV_CROP.width, INV_CROP.height);
+      invoicePage.setMediaBox(0, 0, INVOICE_CROP.width, INVOICE_CROP.height);
       outputPdf.addPage(invoicePage);
     }
 
     const outputBytes = await outputPdf.save();
-    const filename = `combined_${Date.now()}.pdf`;
-    const outPath = path.join('outputs', filename);
-    await fs.writeFile(outPath, outputBytes);
+    // … rest of your save + response logic …
 
-    res.json({ file: `/outputs/${filename}` });
-  } catch (err) {
-    console.error('Processing error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
 
 ensureDirs()
   .then(() => app.listen(process.env.PORT || 3000, () =>
