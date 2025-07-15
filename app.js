@@ -8,6 +8,7 @@ import { PDFDocument } from 'pdf-lib';
 const app = express();
 app.use(cors());
 app.use(express.static('public'));
+// Serve generated PDF
 app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
 
 async function ensureDirs() {
@@ -25,49 +26,42 @@ const upload = multer({
   }
 });
 
+// Split each page into two: first label (top half), then invoice (bottom half), and combine into one PDF
 app.post('/upload', upload.single('pdf'), async (req, res) => {
   try {
     const srcBytes = await fs.readFile(req.file.path);
     const srcPdf = await PDFDocument.load(srcBytes);
-    const labelsPdf = await PDFDocument.create();
-    const invoicesPdf = await PDFDocument.create();
+    const outputPdf = await PDFDocument.create();
 
-    // For each page, split vertically into label (top) & invoice (bottom)
     for (let i = 0; i < srcPdf.getPageCount(); i++) {
-      const [origLabelPage] = await labelsPdf.copyPages(srcPdf, [i]);
-      const [origInvPage]   = await invoicesPdf.copyPages(srcPdf, [i]);
+      // Copy pages from source
+      const [labelPage] = await outputPdf.copyPages(srcPdf, [i]);
+      const [invoicePage] = await outputPdf.copyPages(srcPdf, [i]);
 
-      const page = srcPdf.getPage(i);
-      const width = page.getWidth();
-      const height = page.getHeight();
-      const halfHeight = height / 2;
+      const orig = srcPdf.getPage(i);
+      const width = orig.getWidth();
+      const height = orig.getHeight();
+      const splitY = height / 2;
 
-      // LABEL (top half)
-      origLabelPage.setCropBox(0, halfHeight, width, halfHeight);
-      origLabelPage.setMediaBox(0, 0, width, halfHeight);
-      labelsPdf.addPage(origLabelPage);
+      // Label = top half
+      labelPage.setCropBox(0, splitY, width, splitY);
+      labelPage.setMediaBox(0, 0, width, splitY);
+      outputPdf.addPage(labelPage);
 
-      // INVOICE (bottom half)
-      origInvPage.setCropBox(0, 0, width, halfHeight);
-      origInvPage.setMediaBox(0, 0, width, halfHeight);
-      invoicesPdf.addPage(origInvPage);
+      // Invoice = bottom half
+      invoicePage.setCropBox(0, 0, width, splitY);
+      invoicePage.setMediaBox(0, 0, width, splitY);
+      outputPdf.addPage(invoicePage);
     }
 
-    const labelsBytes = await labelsPdf.save();
-    const invBytes    = await invoicesPdf.save();
+    const outputBytes = await outputPdf.save();
+    const filename = `combined_${Date.now()}.pdf`;
+    const outPath = path.join('outputs', filename);
+    await fs.writeFile(outPath, outputBytes);
 
-    const timestamp = Date.now();
-    const labelsFilename = `labels_${timestamp}.pdf`;
-    const invFilename    = `invoices_${timestamp}.pdf`;
-    await fs.writeFile(path.join('outputs', labelsFilename), labelsBytes);
-    await fs.writeFile(path.join('outputs', invFilename), invBytes);
-
-    res.json({
-      labels: `/outputs/${labelsFilename}`,
-      invoices: `/outputs/${invFilename}`
-    });
+    res.json({ file: `/outputs/${filename}` });
   } catch (err) {
-    console.error(err);
+    console.error('Processing error:', err);
     res.status(500).json({ error: err.message });
   }
 });
