@@ -1,60 +1,67 @@
-const express = require("express");
-const multer = require("multer");
-const cors = require("cors");
-const fs = require("fs");
-const path = require("path");
-const { PDFDocument, rgb } = require("pdf-lib");
+import express from 'express';
+import multer from 'multer';
+import cors from 'cors';
+import fs from 'fs/promises';
+import path from 'path';
+import { PDFDocument } from 'pdf-lib';
 
 const app = express();
 app.use(cors());
-const upload = multer({ dest: "uploads/" });
+app.use(express.static('public'));
 
-const convertToThermalLabels = async (inputPath) => {
-  const A4_HEIGHT = 842;
-  const A4_WIDTH = 595;
-  const LABEL_WIDTH = 213;
-  const LABEL_HEIGHT = 354;
+const targetFolders = ['uploads', 'outputs'];
+async function ensureDirs() {
+  await Promise.all(targetFolders.map(dir =>
+    fs.mkdir(path.join(process.cwd(), dir), { recursive: true })
+  ));
+}
 
-  const originalPdf = await PDFDocument.load(fs.readFileSync(inputPath));
-  const outputPdf = await PDFDocument.create();
-
-  for (const page of originalPdf.getPages()) {
-    const [embeddedPage] = await outputPdf.embedPages([page]);
-
-    // --- Label Page (Top Half) ---
-    const labelPage = outputPdf.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
-    labelPage.drawPage(embeddedPage, {
-      x: 0,
-      y: 0,
-      width: LABEL_WIDTH,
-      height: LABEL_HEIGHT * 2,
-      clip: { x: 0, y: A4_HEIGHT / 2, width: A4_WIDTH, height: A4_HEIGHT / 2 }
-    });
-
-    // --- Invoice Page (Bottom Half) ---
-    const invoicePage = outputPdf.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
-    invoicePage.drawPage(embeddedPage, {
-      x: 0,
-      y: 0,
-      width: LABEL_WIDTH,
-      height: LABEL_HEIGHT * 2,
-      clip: { x: 0, y: 0, width: A4_WIDTH, height: A4_HEIGHT / 2 }
-    });
+const upload = multer({
+  dest: 'uploads/',
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') cb(null, true);
+    else cb(new Error('Only PDF files are allowed'), false);
   }
-
-  return await outputPdf.save();
-};
-
-app.post("/upload", upload.single("pdf"), async (req, res) => {
-  const inputPath = req.file.path;
-  const outputBuffer = await convertToThermalLabels(inputPath);
-  const outputPath = path.join(__dirname, "output", `converted.pdf`);
-
-  fs.writeFileSync(outputPath, outputBuffer);
-  res.download(outputPath, "Thermal_Labels_Merged.pdf", () => {
-    fs.unlinkSync(inputPath);
-    fs.unlinkSync(outputPath);
-  });
 });
 
-app.listen(3000, () => console.log("Server running on http://localhost:3000"));
+let LABEL_CROP = { x: 0, y: 500, width: 595, height: 350 };
+let INVOICE_CROP = { x: 0, y: 0, width: 595, height: 500 };
+
+app.post('/upload', upload.single('pdf'), async (req, res) => {
+  try {
+    const srcBytes = await fs.readFile(req.file.path);
+    const srcPdf = await PDFDocument.load(srcBytes);
+    const labelsPdf = await PDFDocument.create();
+    const invoicesPdf = await PDFDocument.create();
+
+    for (let i = 0; i < srcPdf.getPageCount(); i++) {
+      const [srcPage] = await labelsPdf.copyPages(srcPdf, [i]);
+      const [invPage] = await invoicesPdf.copyPages(srcPdf, [i]);
+
+      srcPage.setCropBox(LABEL_CROP.x, LABEL_CROP.y, LABEL_CROP.width, LABEL_CROP.height);
+      srcPage.setMediaBox(0, 0, LABEL_CROP.width, LABEL_CROP.height);
+      labelsPdf.addPage(srcPage);
+
+      invPage.setCropBox(INVOICE_CROP.x, INVOICE_CROP.y, INVOICE_CROP.width, INVOICE_CROP.height);
+      invPage.setMediaBox(0, 0, INVOICE_CROP.width, INVOICE_CROP.height);
+      invoicesPdf.addPage(invPage);
+    }
+
+    const labelsBytes = await labelsPdf.save();
+    const invBytes = await invoicesPdf.save();
+    const labelsPath = path.join('outputs', \`labels_\${Date.now()}.pdf\`);
+    const invPath = path.join('outputs', \`invoices_\${Date.now()}.pdf\`);
+    await fs.writeFile(labelsPath, labelsBytes);
+    await fs.writeFile(invPath, invBytes);
+
+    res.json({ labels: labelsPath, invoices: invPath });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+ensureDirs()
+  .then(() => app.listen(PORT, () => console.log(\`Server running on port \${PORT}\`)))
+  .catch(err => console.error('Error initializing directories', err));
