@@ -42,27 +42,24 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
       const width = orig.getWidth();
       const height = orig.getHeight();
       // Adjust these based on measured crop regions
-      const LABEL_CROP = { x: 0, y: height/2, width, height: height/2 };
-      const INVOICE_CROP = { x: 0, y: 0, width, height: height/2 };
+      const LABEL_CROP = { x: 0,    y: 0, width: 250, height: 841 };
+      const INV_CROP   = { x: 250,  y: 0, width: 345, height: 841 };
 
       // Crop label (first)
       labelPage.setCropBox(
-        LABEL_CROP.x,
-        LABEL_CROP.y,
-        LABEL_CROP.width,
-        LABEL_CROP.height
+        LABEL_CROP.x, LABEL_CROP.y,
+        LABEL_CROP.width, LABEL_CROP.height
       );
+
       labelPage.setMediaBox(0, 0, LABEL_CROP.width, LABEL_CROP.height);
       outputPdf.addPage(labelPage);
 
       // Crop invoice (second)
       invoicePage.setCropBox(
-        INVOICE_CROP.x,
-        INVOICE_CROP.y,
-        INVOICE_CROP.width,
-        INVOICE_CROP.height
+        INV_CROP.x, INV_CROP.y,
+        INV_CROP.width, INV_CROP.height
       );
-      invoicePage.setMediaBox(0, 0, INVOICE_CROP.width, INVOICE_CROP.height);
+      invoicePage.setMediaBox(0, 0, INV_CROP.width, INV_CROP.height);
       outputPdf.addPage(invoicePage);
     }
 
