@@ -8,8 +8,10 @@ import { PDFDocument } from 'pdf-lib';
 const app = express();
 app.use(cors());
 app.use(express.static('public'));
+// Serve generated PDFs
 app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
 
+// Ensure necessary directories exist
 async function ensureDirs() {
   const dirs = ['uploads', 'outputs'];
   await Promise.all(dirs.map(dir =>
@@ -17,7 +19,7 @@ async function ensureDirs() {
   ));
 }
 
-// Accept single PDF upload
+// Multer setup for single PDF
 const upload = multer({
   dest: 'uploads/',
   fileFilter: (req, file, cb) => {
@@ -26,29 +28,32 @@ const upload = multer({
   }
 });
 
---- a/app.js
-+++ b/app.js
-@@ app.post('/upload', upload.single('pdf'), async (req, res) => {
--    const srcPdf = await PDFDocument.load(srcBytes);
-+    const srcPdf = await PDFDocument.load(srcBytes);
+// Upload endpoint: crops each original page into separate label & invoice pages
+app.post('/upload', upload.single('pdf'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Please upload a PDF file under field name "pdf"' });
+    }
 
-+    // 👉 Log this once so you confirm the page is 216×355pt
-+    const p0 = srcPdf.getPage(0);
-+    console.log(`Original page size: ${p0.getWidth()}pt × ${p0.getHeight()}pt`);
+    const srcBytes = await fs.readFile(req.file.path);
+    const srcPdf = await PDFDocument.load(srcBytes);
 
-+    // 👉 Exact crop boxes (in PDF points) for your shipping label & invoice.
-+    //    Adjust these if your “Tax Invoice” heading sits a little higher/lower.
-+    const LABEL_CROP   = { x: 0, y: 231, width: 216, height: 124 };
-+    const INVOICE_CROP = { x: 0, y:   0, width: 216, height: 231 };
+    // Log the original page size for verification
+    const p0 = srcPdf.getPage(0);
+    console.log(`Original page size: ${p0.getWidth()}pt × ${p0.getHeight()}pt`);
+
+    // Exact crop boxes (in points) for your document
+    const LABEL_CROP   = { x: 0,   y: 231, width: 216, height: 124 };
+    const INVOICE_CROP = { x: 0,   y:  0, width: 216, height: 231 };
 
     const outputPdf = await PDFDocument.create();
 
     for (let i = 0; i < srcPdf.getPageCount(); i++) {
-      // copy the original page twice
+      // Copy the same page twice
       const [labelPage]   = await outputPdf.copyPages(srcPdf, [i]);
       const [invoicePage] = await outputPdf.copyPages(srcPdf, [i]);
 
-      // 1️⃣ Crop out **only** the label block
+      // 1) Crop label region
       labelPage.setCropBox(
         LABEL_CROP.x, LABEL_CROP.y,
         LABEL_CROP.width, LABEL_CROP.height
@@ -56,7 +61,7 @@ const upload = multer({
       labelPage.setMediaBox(0, 0, LABEL_CROP.width, LABEL_CROP.height);
       outputPdf.addPage(labelPage);
 
-      // 2️⃣ Crop out **only** the invoice block
+      // 2) Crop invoice region
       invoicePage.setCropBox(
         INVOICE_CROP.x, INVOICE_CROP.y,
         INVOICE_CROP.width, INVOICE_CROP.height
@@ -66,11 +71,19 @@ const upload = multer({
     }
 
     const outputBytes = await outputPdf.save();
-    // … rest of your save + response logic …
+    const filename = `combined_${Date.now()}.pdf`;
+    const outPath = path.join('outputs', filename);
+    await fs.writeFile(outPath, outputBytes);
 
+    res.json({ file: `/outputs/${filename}` });
+  } catch (err) {
+    console.error('Processing error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 ensureDirs()
   .then(() => app.listen(process.env.PORT || 3000, () =>
     console.log('Server running on port', process.env.PORT || 3000)
   ))
-  .catch(err => console.error('Dir init error', err));
+  .catch(err => console.error('Directory initialization error:', err));
