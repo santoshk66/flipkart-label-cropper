@@ -18,7 +18,7 @@
     #labelRect, #invoiceRect { position: absolute; border: 2px solid; pointer-events: none; }
     #labelRect { border-color: blue; }
     #invoiceRect { border-color: red; }
-    #result { margin-top: 20px; }
+    #result, #cropInfo { margin-top: 20px; }
     .error { color: red; }
     .success { color: green; }
   </style>
@@ -36,6 +36,7 @@
       <div id="labelRect"></div>
       <div id="invoiceRect"></div>
     </div>
+    <div id="cropInfo"></div>
     <div class="form-group">
       <button type="button" id="selectLabel">Select Label Crop</button>
       <button type="button" id="selectInvoice">Select Invoice Crop</button>
@@ -55,6 +56,8 @@
     let invoiceCrop = null;
     let selectingType = null;
     let canvasScale = 1;
+    let pdfPageWidth = 595; // Default A4 width in points
+    let pdfPageHeight = 842; // Default A4 height in points
 
     const canvas = document.getElementById('pdfCanvas');
     const ctx = canvas.getContext('2d');
@@ -66,6 +69,7 @@
     const processPdfBtn = document.getElementById('processPdf');
     const form = document.getElementById('uploadForm');
     const resultDiv = document.getElementById('result');
+    const cropInfoDiv = document.getElementById('cropInfo');
 
     // Load and render first PDF page
     loadPdfBtn.addEventListener('click', async () => {
@@ -79,6 +83,8 @@
       pdfDoc = await pdfjsLib.getDocument(arrayBuffer).promise;
       const page = await pdfDoc.getPage(1);
       const viewport = page.getViewport({ scale: 1 });
+      pdfPageWidth = viewport.width;
+      pdfPageHeight = viewport.height;
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       canvasScale = Math.min(800 / viewport.width, 1); // Fit to 800px width
@@ -87,6 +93,12 @@
       await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: canvasScale }) }).promise;
       selectLabelBtn.disabled = false;
       selectInvoiceBtn.disabled = false;
+      labelCrop = null;
+      invoiceCrop = null;
+      labelRect.style.display = 'none';
+      invoiceRect.style.display = 'none';
+      processPdfBtn.disabled = true;
+      cropInfoDiv.innerHTML = '';
       resultDiv.innerHTML = '<p>PDF loaded. Click "Select Label Crop" or "Select Invoice Crop" to define crop areas.</p>';
     });
 
@@ -107,6 +119,7 @@
       const width = x - startX;
       const height = y - startY;
       const targetRect = selectingType === 'label' ? labelRect : invoiceRect;
+      targetRect.style.display = 'block';
       targetRect.style.left = `${Math.min(startX, x) * canvasScale}px`;
       targetRect.style.top = `${Math.min(startY, y) * canvasScale}px`;
       targetRect.style.width = `${Math.abs(width) * canvasScale}px`;
@@ -132,6 +145,17 @@
         invoiceCrop = crop;
         selectInvoiceBtn.disabled = true;
       }
+      // Display crop coordinates
+      cropInfoDiv.innerHTML = `
+        <p>Label Crop: X=${labelCrop ? labelCrop.x.toFixed(2) : 'Not set'}, 
+        Y=${labelCrop ? labelCrop.y.toFixed(2) : 'Not set'}, 
+        Width=${labelCrop ? labelCrop.width.toFixed(2) : 'Not set'}, 
+        Height=${labelCrop ? labelCrop.height.toFixed(2) : 'Not set'}</p>
+        <p>Invoice Crop: X=${invoiceCrop ? invoiceCrop.x.toFixed(2) : 'Not set'}, 
+        Y=${invoiceCrop ? invoiceCrop.y.toFixed(2) : 'Not set'}, 
+        Width=${invoiceCrop ? invoiceCrop.width.toFixed(2) : 'Not set'}, 
+        Height=${invoiceCrop ? invoiceCrop.height.toFixed(2) : 'Not set'}</p>
+      `;
       if (labelCrop && invoiceCrop) processPdfBtn.disabled = false;
       selectingType = null;
     });
@@ -176,8 +200,10 @@
             <p class="success">PDF processed successfully!</p>
             <p><a href="${data.file}" download>Download Output PDF</a></p>
             <p>Pages processed: ${data.pagesProcessed}</p>
-            <p>Label Crop: X=${data.cropUsed.labelCrop.x}, Y=${data.cropUsed.labelCrop.y}, Width=${data.cropUsed.labelCrop.width}, Height=${data.cropUsed.labelCrop.height}</p>
-            <p>Invoice Crop: X=${data.cropUsed.invoiceCrop.x}, Y=${data.cropUsed.invoiceCrop.y}, Width=${data.cropUsed.invoiceCrop.width}, Height=${data.cropUsed.invoiceCrop.height}</p>
+            <p>Label Crop: X=${data.cropUsed.labelCrop.x.toFixed(2)}, Y=${data.cropUsed.labelCrop.y.toFixed(2)}, 
+            Width=${data.cropUsed.labelCrop.width.toFixed(2)}, Height=${data.cropUsed.labelCrop.height.toFixed(2)}</p>
+            <p>Invoice Crop: X=${data.cropUsed.invoiceCrop.x.toFixed(2)}, Y=${data.cropUsed.invoiceCrop.y.toFixed(2)}, 
+            Width=${data.cropUsed.invoiceCrop.width.toFixed(2)}, Height=${data.cropUsed.invoiceCrop.height.toFixed(2)}</p>
           `;
         }
       } catch (err) {
