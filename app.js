@@ -38,6 +38,9 @@ const DEFAULT_CROP = {
 // Validate crop coordinates
 function validateCrop(crop, pageWidth, pageHeight) {
   const { x, y, width, height } = crop;
+  if (isNaN(x) || isNaN(y) || isNaN(width) || isNaN(height)) {
+    throw new Error('Crop coordinates must be valid numbers');
+  }
   if (x < 0 || y < 0 || width <= 0 || height <= 0) {
     throw new Error('Crop coordinates must be positive and non-zero');
   }
@@ -80,8 +83,12 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
       height: parseFloat(req.body.invoiceHeight) || DEFAULT_CROP.invoice.height
     }, pageWidth, pageHeight);
 
+    console.log('Label Crop:', labelCrop);
+    console.log('Invoice Crop:', invoiceCrop);
+
     const outputPdf = await PDFDocument.create();
     let validPages = 0;
+    let skippedPages = [];
 
     for (let i = 0; i < srcPdf.getPageCount(); i++) {
       // Get page size for each page
@@ -94,17 +101,19 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
       const textContent = await page.getTextContent();
       const text = textContent.items.map(item => item.str).join(' ').toLowerCase();
 
-      // Skip pages with minimal or irrelevant content
-      if (text.length < 50 || (text.includes('e. & o.e.') && !text.includes('soni singh') && !text.includes('tax invoice'))) {
+      // Loosen filtering to debug
+      if (text.length < 20) {
+        skippedPages.push({ page: i + 1, reason: `Insufficient content (${text.length} chars)`, text });
         console.log(`Skipping page ${i + 1}: insufficient content (${text.length} chars)`);
         continue;
       }
 
       // Identify label and invoice pages
-      const isLabel = text.includes('ordered through') && text.includes('soni singh');
+      const isLabel = text.includes('ordered through') || text.includes('soni singh');
       const isInvoice = text.includes('tax invoice') || text.includes('fssai license number') || text.includes('declaration');
 
       if (!isLabel && !isInvoice) {
+        skippedPages.push({ page: i + 1, reason: 'Not a label or invoice', text });
         console.log(`Skipping page ${i + 1}: not a label or invoice`);
         continue;
       }
@@ -118,6 +127,7 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
         labelPage.setCropBox(labelCrop.x, labelCrop.y, labelCrop.width, labelCrop.height);
         labelPage.setMediaBox(0, 0, labelCrop.width, labelCrop.height);
         const labelScale = Math.min(2126 / labelCrop.width, 3543 / labelCrop.height);
+        console.log(`Label page ${i + 1} scale: ${labelScale}`);
         labelPage.scale(labelScale, labelScale);
         outputPdf.addPage(labelPage);
         validPages++;
@@ -129,6 +139,7 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
         invoicePage.setCropBox(invoiceCrop.x, invoiceCrop.y, invoiceCrop.width, invoiceCrop.height);
         invoicePage.setMediaBox(0, 0, invoiceCrop.width, invoiceCrop.height);
         const invoiceScale = Math.min(2126 / invoiceCrop.width, 3543 / invoiceCrop.height);
+        console.log(`Invoice page ${i + 1} scale: ${invoiceScale}`);
         invoicePage.scale(invoiceScale, invoiceScale);
         outputPdf.addPage(invoicePage);
         validPages++;
@@ -137,7 +148,8 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     }
 
     if (validPages === 0) {
-      throw new Error('No valid label or invoice pages found in the PDF');
+      console.log('Skipped pages:', skippedPages);
+      throw new Error(`No valid label or invoice pages found. Skipped pages: ${JSON.stringify(skippedPages)}`);
     }
 
     const outputBytes = await outputPdf.save();
