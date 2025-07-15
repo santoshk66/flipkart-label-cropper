@@ -4,6 +4,7 @@ import cors from 'cors';
 import fs from 'fs/promises';
 import path from 'path';
 import { PDFDocument } from 'pdf-lib';
+import { getDocument } from 'pdfjs-dist';
 
 const app = express();
 app.use(cors());
@@ -41,7 +42,13 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     }
 
     const srcBytes = await fs.readFile(req.file.path);
+    
+    // Load PDF with pdf-lib for cropping
     const srcPdf = await PDFDocument.load(srcBytes);
+
+    // Load PDF with pdfjs-dist for text extraction
+    const pdfjsLib = getDocument({ data: srcBytes });
+    const pdfjsDoc = await pdfjsLib.promise;
 
     // Log original page size
     const p0 = srcPdf.getPage(0);
@@ -64,13 +71,14 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     const outputPdf = await PDFDocument.create();
 
     for (let i = 0; i < srcPdf.getPageCount(); i++) {
-      const page = srcPdf.getPage(i);
+      // Extract text using pdfjs-dist
+      const page = await pdfjsDoc.getPage(i + 1);
       const textContent = await page.getTextContent();
       const text = textContent.items.map(item => item.str).join(' ').toLowerCase();
       const isInvoice = text.includes('tax invoice');
       const isLabel = text.includes('ordered through') && text.includes('soni singh');
 
-      // Copy page for both label and invoice
+      // Copy page for both label and invoice using pdf-lib
       const [labelPage] = await outputPdf.copyPages(srcPdf, [i]);
       const [invoicePage] = await outputPdf.copyPages(srcPdf, [i]);
 
