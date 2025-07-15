@@ -7,7 +7,6 @@ import { PDFDocument } from 'pdf-lib';
 
 const app = express();
 app.use(cors());
-// Serve frontend and output PDFs
 app.use(express.static('public'));
 app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
 
@@ -26,9 +25,6 @@ const upload = multer({
   }
 });
 
-let LABEL_CROP = { x: 0, y: 500, width: 595, height: 350 };
-let INVOICE_CROP = { x: 0, y: 0, width: 595, height: 500 };
-
 app.post('/upload', upload.single('pdf'), async (req, res) => {
   try {
     const srcBytes = await fs.readFile(req.file.path);
@@ -36,43 +32,40 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     const labelsPdf = await PDFDocument.create();
     const invoicesPdf = await PDFDocument.create();
 
+    // For each page, split vertically into label (top) & invoice (bottom)
     for (let i = 0; i < srcPdf.getPageCount(); i++) {
-      const [labelPage] = await labelsPdf.copyPages(srcPdf, [i]);
-      const [invPage] = await invoicesPdf.copyPages(srcPdf, [i]);
+      const [origLabelPage] = await labelsPdf.copyPages(srcPdf, [i]);
+      const [origInvPage]   = await invoicesPdf.copyPages(srcPdf, [i]);
 
-      // Crop for label
-      labelPage.setCropBox(
-        LABEL_CROP.x,
-        LABEL_CROP.y,
-        LABEL_CROP.width,
-        LABEL_CROP.height
-      );
-      labelPage.setMediaBox(0, 0, LABEL_CROP.width, LABEL_CROP.height);
-      labelsPdf.addPage(labelPage);
+      const page = srcPdf.getPage(i);
+      const width = page.getWidth();
+      const height = page.getHeight();
+      const halfHeight = height / 2;
 
-      // Crop for invoice
-      invPage.setCropBox(
-        INVOICE_CROP.x,
-        INVOICE_CROP.y,
-        INVOICE_CROP.width,
-        INVOICE_CROP.height
-      );
-      invPage.setMediaBox(0, 0, INVOICE_CROP.width, INVOICE_CROP.height);
-      invoicesPdf.addPage(invPage);
+      // LABEL (top half)
+      origLabelPage.setCropBox(0, halfHeight, width, halfHeight);
+      origLabelPage.setMediaBox(0, 0, width, halfHeight);
+      labelsPdf.addPage(origLabelPage);
+
+      // INVOICE (bottom half)
+      origInvPage.setCropBox(0, 0, width, halfHeight);
+      origInvPage.setMediaBox(0, 0, width, halfHeight);
+      invoicesPdf.addPage(origInvPage);
     }
 
     const labelsBytes = await labelsPdf.save();
-    const invBytes = await invoicesPdf.save();
+    const invBytes    = await invoicesPdf.save();
 
-    const labelsFilename = 'labels_' + Date.now() + '.pdf';
-    const invFilename = 'invoices_' + Date.now() + '.pdf';
-    const labelsPath = path.join('outputs', labelsFilename);
-    const invPath = path.join('outputs', invFilename);
-    await fs.writeFile(labelsPath, labelsBytes);
-    await fs.writeFile(invPath, invBytes);
+    const timestamp = Date.now();
+    const labelsFilename = `labels_${timestamp}.pdf`;
+    const invFilename    = `invoices_${timestamp}.pdf`;
+    await fs.writeFile(path.join('outputs', labelsFilename), labelsBytes);
+    await fs.writeFile(path.join('outputs', invFilename), invBytes);
 
-    // Return relative URLs
-    res.json({ labels: '/outputs/' + labelsFilename, invoices: '/outputs/' + invFilename });
+    res.json({
+      labels: `/outputs/${labelsFilename}`,
+      invoices: `/outputs/${invFilename}`
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
