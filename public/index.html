@@ -24,24 +24,23 @@
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const formData = new FormData(form);
-      const res = await fetch('/upload', { method: 'POST', body: formData });
-      const data = await res.json();
-      linksDiv.innerHTML = '';
-      if (data.labels) {
-        const link1 = document.createElement('a');
-        link1.href = data.labels;
-        link1.textContent = 'Download Cropped Labels';
-        linksDiv.appendChild(link1);
-      }
-      if (data.invoices) {
-        const link2 = document.createElement('a');
-        link2.href = data.invoices;
-        link2.textContent = 'Download Cropped Invoices';
-        linksDiv.appendChild(link2);
-      }
-      if (data.error) {
-        linksDiv.textContent = 'Error: ' + data.error;
+      linksDiv.textContent = 'Processing…';
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: new FormData(form) });
+        const data = await res.json();
+        linksDiv.innerHTML = '';
+
+        if (data.file) {
+          const link = document.createElement('a');
+          link.href = data.file;
+          link.textContent = 'Download Combined PDF';
+          link.target = '_blank';
+          linksDiv.appendChild(link);
+        } else if (data.error) {
+          linksDiv.textContent = 'Error: ' + data.error;
+        }
+      } catch (err) {
+        linksDiv.textContent = 'Upload failed: ' + err.message;
       }
     });
   </script>
