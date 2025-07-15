@@ -47,11 +47,14 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
 
     const srcBytes = await fs.readFile(req.file.path);
     
+    // Convert Buffer to Uint8Array for pdfjs-dist
+    const srcBytesArray = new Uint8Array(srcBytes);
+    
     // Load PDF with pdf-lib for cropping
     const srcPdf = await PDFDocument.load(srcBytes);
 
     // Load PDF with pdfjs-dist for text extraction
-    const pdfjsDoc = await getDocument({ data: srcBytes }).promise;
+    const pdfjsDoc = await getDocument({ data: srcBytesArray }).promise;
 
     // Log original page size
     const p0 = srcPdf.getPage(0);
