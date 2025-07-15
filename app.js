@@ -7,14 +7,7 @@ const { PDFDocument, rgb } = require("pdf-lib");
 
 const app = express();
 app.use(cors());
-app.use(express.static("public")); // 👈 Serve static files from public folder
-
 const upload = multer({ dest: "uploads/" });
-
-// Serve HTML upload form on root
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
-});
 
 const convertToThermalLabels = async (inputPath) => {
   const A4_HEIGHT = 842;
@@ -28,6 +21,7 @@ const convertToThermalLabels = async (inputPath) => {
   for (const page of originalPdf.getPages()) {
     const [embeddedPage] = await outputPdf.embedPages([page]);
 
+    // --- Label Page (Top Half) ---
     const labelPage = outputPdf.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
     labelPage.drawPage(embeddedPage, {
       x: 0,
@@ -37,6 +31,7 @@ const convertToThermalLabels = async (inputPath) => {
       clip: { x: 0, y: A4_HEIGHT / 2, width: A4_WIDTH, height: A4_HEIGHT / 2 }
     });
 
+    // --- Invoice Page (Bottom Half) ---
     const invoicePage = outputPdf.addPage([LABEL_WIDTH, LABEL_HEIGHT]);
     invoicePage.drawPage(embeddedPage, {
       x: 0,
