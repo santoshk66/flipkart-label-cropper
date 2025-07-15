@@ -6,18 +6,20 @@
   <title>PDF Cropper</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; }
+    body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
     .form-group { margin-bottom: 15px; }
     label { display: inline-block; width: 150px; }
     input[type="file"] { margin: 10px 0; }
     button { padding: 10px 20px; margin: 5px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
     button:hover { background-color: #45a049; }
     button:disabled { background-color: #cccccc; cursor: not-allowed; }
-    #canvasContainer { position: relative; border: 1px solid #ccc; margin: 10px 0; }
+    #canvasContainer { position: relative; border: 1px solid #ccc; margin: 10px 0; display: inline-block; }
     #pdfCanvas { display: block; }
     #labelRect, #invoiceRect { position: absolute; border: 2px solid; pointer-events: none; }
     #labelRect { border-color: blue; }
     #invoiceRect { border-color: red; }
+    #previewContainer { margin-top: 20px; display: flex; gap: 20px; }
+    #labelPreview, #invoicePreview { border: 1px solid #ccc; }
     #result, #cropInfo { margin-top: 20px; }
     .error { color: red; }
     .success { color: green; }
@@ -37,6 +39,16 @@
       <div id="invoiceRect"></div>
     </div>
     <div id="cropInfo"></div>
+    <div id="previewContainer">
+      <div>
+        <h3>Label Preview</h3>
+        <canvas id="labelPreview"></canvas>
+      </div>
+      <div>
+        <h3>Invoice Preview</h3>
+        <canvas id="invoicePreview"></canvas>
+      </div>
+    </div>
     <div class="form-group">
       <button type="button" id="selectLabel">Select Label Crop</button>
       <button type="button" id="selectInvoice">Select Invoice Crop</button>
@@ -58,11 +70,16 @@
     let canvasScale = 1;
     let pdfPageWidth = 595; // Default A4 width in points
     let pdfPageHeight = 842; // Default A4 height in points
+    let page = null;
 
     const canvas = document.getElementById('pdfCanvas');
     const ctx = canvas.getContext('2d');
     const labelRect = document.getElementById('labelRect');
     const invoiceRect = document.getElementById('invoiceRect');
+    const labelPreview = document.getElementById('labelPreview');
+    const invoicePreview = document.getElementById('invoicePreview');
+    const labelPreviewCtx = labelPreview.getContext('2d');
+    const invoicePreviewCtx = invoicePreview.getContext('2d');
     const loadPdfBtn = document.getElementById('loadPdf');
     const selectLabelBtn = document.getElementById('selectLabel');
     const selectInvoiceBtn = document.getElementById('selectInvoice');
@@ -70,6 +87,27 @@
     const form = document.getElementById('uploadForm');
     const resultDiv = document.getElementById('result');
     const cropInfoDiv = document.getElementById('cropInfo');
+
+    // Render cropped preview
+    async function renderPreview(crop, targetCanvas, targetCtx) {
+      if (!crop || !page) return;
+      targetCanvas.width = crop.width;
+      targetCanvas.height = crop.height;
+      const viewport = page.getViewport({ scale: 1 });
+      const renderViewport = page.getViewport({
+        scale: 1,
+        offsetX: -crop.x,
+        offsetY: -crop.y
+      });
+      targetCtx.clearRect(0, 0, crop.width, crop.height);
+      await page.render({
+        canvasContext: targetCtx,
+        viewport: renderViewport,
+        clip: { x: crop.x, y: crop.y, width: crop.width, height: crop.height }
+      }).promise;
+      targetCanvas.style.width = `${crop.width * Math.min(400 / crop.width, 1)}px`;
+      targetCanvas.style.height = `${crop.height * Math.min(400 / crop.width, 1)}px`;
+    }
 
     // Load and render first PDF page
     loadPdfBtn.addEventListener('click', async () => {
@@ -81,7 +119,7 @@
       const file = fileInput.files[0];
       const arrayBuffer = await file.arrayBuffer();
       pdfDoc = await pdfjsLib.getDocument(arrayBuffer).promise;
-      const page = await pdfDoc.getPage(1);
+      page = await pdfDoc.getPage(1);
       const viewport = page.getViewport({ scale: 1 });
       pdfPageWidth = viewport.width;
       pdfPageHeight = viewport.height;
@@ -97,6 +135,8 @@
       invoiceCrop = null;
       labelRect.style.display = 'none';
       invoiceRect.style.display = 'none';
+      labelPreviewCtx.clearRect(0, 0, labelPreview.width, labelPreview.height);
+      invoicePreviewCtx.clearRect(0, 0, invoicePreview.width, invoicePreview.height);
       processPdfBtn.disabled = true;
       cropInfoDiv.innerHTML = '';
       resultDiv.innerHTML = '<p>PDF loaded. Click "Select Label Crop" or "Select Invoice Crop" to define crop areas.</p>';
@@ -126,7 +166,7 @@
       targetRect.style.height = `${Math.abs(height) * canvasScale}px`;
     });
 
-    canvas.addEventListener('mouseup', () => {
+    canvas.addEventListener('mouseup', async () => {
       if (!isSelecting) return;
       isSelecting = false;
       const rect = canvas.getBoundingClientRect();
@@ -141,9 +181,11 @@
       if (selectingType === 'label') {
         labelCrop = crop;
         selectLabelBtn.disabled = true;
+        await renderPreview(labelCrop, labelPreview, labelPreviewCtx);
       } else {
         invoiceCrop = crop;
         selectInvoiceBtn.disabled = true;
+        await renderPreview(invoiceCrop, invoicePreview, invoicePreviewCtx);
       }
       // Display crop coordinates
       cropInfoDiv.innerHTML = `
