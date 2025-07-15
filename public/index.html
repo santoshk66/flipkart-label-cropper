@@ -17,24 +17,24 @@
       <div>
         <h2 class="text-lg font-semibold">Label Crop Coordinates</h2>
         <label class="block text-sm">X:</label>
-        <input type="number" name="labelX" value="50" class="border p-2 w-full" />
+        <input type="number" name="labelX" value="50" min="0" class="border p-2 w-full" />
         <label class="block text-sm">Y:</label>
-        <input type="number" name="labelY" value="50" class="border p-2 w-full" />
+        <input type="number" name="labelY" value="50" min="0" class="border p-2 w-full" />
         <label class="block text-sm">Width:</label>
-        <input type="number" name="labelWidth" value="495" class="border p-2 w-full" />
+        <input type="number" name="labelWidth" value="495" min="1" class="border p-2 w-full" />
         <label class="block text-sm">Height:</label>
-        <input type="number" name="labelHeight" value="300" class="border p-2 w-full" />
+        <input type="number" name="labelHeight" value="300" min="1" class="border p-2 w-full" />
       </div>
       <div>
         <h2 class="text-lg font-semibold">Invoice Crop Coordinates</h2>
         <label class="block text-sm">X:</label>
-        <input type="number" name="invoiceX" value="50" class="border p-2 w-full" />
+        <input type="number" name="invoiceX" value="50" min="0" class="border p-2 w-full" />
         <label class="block text-sm">Y:</label>
-        <input type="number" name="invoiceY" value="350" class="border p-2 w-full" />
+        <input type="number" name="invoiceY" value="350" min="0" class="border p-2 w-full" />
         <label class="block text-sm">Width:</label>
-        <input type="number" name="invoiceWidth" value="495" class="border p-2 w-full" />
+        <input type="number" name="invoiceWidth" value="495" min="1" class="border p-2 w-full" />
         <label class="block text-sm">Height:</label>
-        <input type="number" name="invoiceHeight" value="442" class="border p-2 w-full" />
+        <input type="number" name="invoiceHeight" value="442" min="1" class="border p-2 w-full" />
       </div>
     </div>
     <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Upload & Crop</button>
