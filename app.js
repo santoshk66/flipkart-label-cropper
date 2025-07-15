@@ -8,7 +8,6 @@ import { PDFDocument } from 'pdf-lib';
 const app = express();
 app.use(cors());
 app.use(express.static('public'));
-// Expose outputs
 app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
 
 async function ensureDirs() {
@@ -18,40 +17,63 @@ async function ensureDirs() {
   ));
 }
 
-// Accept two files: labels PDF and invoices PDF
-const upload = multer({ dest: 'uploads/' });
+// Accept single PDF upload
+const upload = multer({
+  dest: 'uploads/',
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') cb(null, true);
+    else cb(new Error('Only PDF files are allowed'), false);
+  }
+});
 
-app.post('/upload', upload.fields([
-  { name: 'labels', maxCount: 1 },
-  { name: 'invoices', maxCount: 1 }
-]), async (req, res) => {
+app.post('/upload', upload.single('pdf'), async (req, res) => {
   try {
-    if (!req.files.labels || !req.files.invoices) {
-      return res.status(400).json({ error: 'Please upload both labels and invoices PDFs' });
-    }
-    const labelsBytes = await fs.readFile(req.files.labels[0].path);
-    const invoicesBytes = await fs.readFile(req.files.invoices[0].path);
-
-    const labelsPdf = await PDFDocument.load(labelsBytes);
-    const invoicesPdf = await PDFDocument.load(invoicesBytes);
+    if (!req.file) return res.status(400).json({ error: 'Please upload a PDF file under field name "pdf"' });
+    const srcBytes = await fs.readFile(req.file.path);
+    const srcPdf = await PDFDocument.load(srcBytes);
     const outputPdf = await PDFDocument.create();
 
-    const num = Math.min(labelsPdf.getPageCount(), invoicesPdf.getPageCount());
-    for (let i = 0; i < num; i++) {
-      const [labPage] = await outputPdf.copyPages(labelsPdf, [i]);
-      outputPdf.addPage(labPage);
-      const [invPage] = await outputPdf.copyPages(invoicesPdf, [i]);
-      outputPdf.addPage(invPage);
+    for (let i = 0; i < srcPdf.getPageCount(); i++) {
+      // Copy original page twice
+      const [labelPage] = await outputPdf.copyPages(srcPdf, [i]);
+      const [invoicePage] = await outputPdf.copyPages(srcPdf, [i]);
+
+      const orig = srcPdf.getPage(i);
+      const width = orig.getWidth();
+      const height = orig.getHeight();
+      // Adjust these based on measured crop regions
+      const LABEL_CROP = { x: 0, y: height/2, width, height: height/2 };
+      const INVOICE_CROP = { x: 0, y: 0, width, height: height/2 };
+
+      // Crop label (first)
+      labelPage.setCropBox(
+        LABEL_CROP.x,
+        LABEL_CROP.y,
+        LABEL_CROP.width,
+        LABEL_CROP.height
+      );
+      labelPage.setMediaBox(0, 0, LABEL_CROP.width, LABEL_CROP.height);
+      outputPdf.addPage(labelPage);
+
+      // Crop invoice (second)
+      invoicePage.setCropBox(
+        INVOICE_CROP.x,
+        INVOICE_CROP.y,
+        INVOICE_CROP.width,
+        INVOICE_CROP.height
+      );
+      invoicePage.setMediaBox(0, 0, INVOICE_CROP.width, INVOICE_CROP.height);
+      outputPdf.addPage(invoicePage);
     }
 
-    const outBytes = await outputPdf.save();
+    const outputBytes = await outputPdf.save();
     const filename = `combined_${Date.now()}.pdf`;
     const outPath = path.join('outputs', filename);
-    await fs.writeFile(outPath, outBytes);
+    await fs.writeFile(outPath, outputBytes);
 
     res.json({ file: `/outputs/${filename}` });
   } catch (err) {
-    console.error('Combine error:', err);
+    console.error('Processing error:', err);
     res.status(500).json({ error: err.message });
   }
 });
