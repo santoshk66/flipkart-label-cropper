@@ -4,7 +4,11 @@ import cors from 'cors';
 import fs from 'fs/promises';
 import path from 'path';
 import { PDFDocument } from 'pdf-lib';
-import { getDocument } from 'pdfjs-dist';
+import pkg from 'pdfjs-dist';
+const { getDocument, GlobalWorkerOptions } = pkg;
+
+// Set the worker source for pdfjs-dist (use CDN for simplicity)
+GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
 const app = express();
 app.use(cors());
@@ -47,8 +51,7 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     const srcPdf = await PDFDocument.load(srcBytes);
 
     // Load PDF with pdfjs-dist for text extraction
-    const pdfjsLib = getDocument({ data: srcBytes });
-    const pdfjsDoc = await pdfjsLib.promise;
+    const pdfjsDoc = await getDocument({ data: srcBytes }).promise;
 
     // Log original page size
     const p0 = srcPdf.getPage(0);
