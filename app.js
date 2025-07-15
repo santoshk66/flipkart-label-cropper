@@ -8,7 +8,7 @@ import { PDFDocument } from 'pdf-lib';
 const app = express();
 app.use(cors());
 app.use(express.static('public'));
-// Serve generated PDF
+// Expose outputs
 app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
 
 async function ensureDirs() {
@@ -18,50 +18,40 @@ async function ensureDirs() {
   ));
 }
 
-const upload = multer({
-  dest: 'uploads/',
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') cb(null, true);
-    else cb(new Error('Only PDF files are allowed'), false);
-  }
-});
+// Accept two files: labels PDF and invoices PDF
+const upload = multer({ dest: 'uploads/' });
 
-// Split each page into two: first label (top half), then invoice (bottom half), and combine into one PDF
-app.post('/upload', upload.single('pdf'), async (req, res) => {
+app.post('/upload', upload.fields([
+  { name: 'labels', maxCount: 1 },
+  { name: 'invoices', maxCount: 1 }
+]), async (req, res) => {
   try {
-    const srcBytes = await fs.readFile(req.file.path);
-    const srcPdf = await PDFDocument.load(srcBytes);
+    if (!req.files.labels || !req.files.invoices) {
+      return res.status(400).json({ error: 'Please upload both labels and invoices PDFs' });
+    }
+    const labelsBytes = await fs.readFile(req.files.labels[0].path);
+    const invoicesBytes = await fs.readFile(req.files.invoices[0].path);
+
+    const labelsPdf = await PDFDocument.load(labelsBytes);
+    const invoicesPdf = await PDFDocument.load(invoicesBytes);
     const outputPdf = await PDFDocument.create();
 
-    for (let i = 0; i < srcPdf.getPageCount(); i++) {
-      // Copy pages from source
-      const [labelPage] = await outputPdf.copyPages(srcPdf, [i]);
-      const [invoicePage] = await outputPdf.copyPages(srcPdf, [i]);
-
-      const orig = srcPdf.getPage(i);
-      const width = orig.getWidth();
-      const height = orig.getHeight();
-      const splitY = height / 2;
-
-      // Label = top half
-      labelPage.setCropBox(0, splitY, width, splitY);
-      labelPage.setMediaBox(0, 0, width, splitY);
-      outputPdf.addPage(labelPage);
-
-      // Invoice = bottom half
-      invoicePage.setCropBox(0, 0, width, splitY);
-      invoicePage.setMediaBox(0, 0, width, splitY);
-      outputPdf.addPage(invoicePage);
+    const num = Math.min(labelsPdf.getPageCount(), invoicesPdf.getPageCount());
+    for (let i = 0; i < num; i++) {
+      const [labPage] = await outputPdf.copyPages(labelsPdf, [i]);
+      outputPdf.addPage(labPage);
+      const [invPage] = await outputPdf.copyPages(invoicesPdf, [i]);
+      outputPdf.addPage(invPage);
     }
 
-    const outputBytes = await outputPdf.save();
+    const outBytes = await outputPdf.save();
     const filename = `combined_${Date.now()}.pdf`;
     const outPath = path.join('outputs', filename);
-    await fs.writeFile(outPath, outputBytes);
+    await fs.writeFile(outPath, outBytes);
 
     res.json({ file: `/outputs/${filename}` });
   } catch (err) {
-    console.error('Processing error:', err);
+    console.error('Combine error:', err);
     res.status(500).json({ error: err.message });
   }
 });
