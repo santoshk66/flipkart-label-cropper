@@ -1,10 +1,9 @@
 {
   "name": "flipkart-label-cropper",
   "version": "1.0.0",
-  "main": "app.js",
-  "type": "module",
+  "main": "app.cjs",
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.cjs"
   },
   "dependencies": {
     "cors": "^2.8.5",
