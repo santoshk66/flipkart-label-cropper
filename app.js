@@ -31,8 +31,8 @@ const upload = multer({
 
 // Default crop boxes (in points, assuming A4 input: 595x842)
 const DEFAULT_CROP = {
-  label: { x: 50, y: 50, width: 495, height: 300 }, // Top section for labels
-  invoice: { x: 50, y: 350, width: 495, height: 442 } // Bottom section for invoices
+  label: { x: 30, y: 30, width: 535, height: 320 }, // Adjusted for full label
+  invoice: { x: 30, y: 360, width: 535, height: 462 } // Adjusted for full invoice
 };
 
 // Validate crop coordinates
@@ -55,14 +55,8 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     }
 
     const srcBytes = await fs.readFile(req.file.path);
-    
-    // Convert Buffer to Uint8Array for pdfjs-dist
-    const srcBytesArray = new Uint8Array(srcBytes);
-    
-    // Load PDF with pdf-lib for cropping
+    const srcBytesArray = new Uint8Array(srcBytes); // Convert Buffer to Uint8Array
     const srcPdf = await PDFDocument.load(srcBytes);
-
-    // Load PDF with pdfjs-dist for text extraction, disabling worker
     const pdfjsDoc = await getDocument({ data: srcBytesArray, disableWorker: true }).promise;
 
     // Log original page size
@@ -87,32 +81,58 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     }, pageWidth, pageHeight);
 
     const outputPdf = await PDFDocument.create();
+    let validPages = 0;
 
     for (let i = 0; i < srcPdf.getPageCount(); i++) {
       // Extract text using pdfjs-dist
       const page = await pdfjsDoc.getPage(i + 1);
       const textContent = await page.getTextContent();
       const text = textContent.items.map(item => item.str).join(' ').toLowerCase();
-      const isInvoice = text.includes('tax invoice');
-      const isLabel = text.includes('ordered through') && text.includes('soni singh');
 
-      // Copy page for both label and invoice using pdf-lib
+      // Skip pages with minimal or irrelevant content
+      if (text.length < 50 || text.includes('e. & o.e.') && !text.includes('soni singh') && !text.includes('tax invoice')) {
+        console.log(`Skipping page ${i + 1}: insufficient content (${text.length} chars)`);
+        continue;
+      }
+
+      // Identify label and invoice pages
+      const isLabel = text.includes('ordered through') && text.includes('soni singh');
+      const isInvoice = text.includes('tax invoice') || text.includes('fssai license number') || text.includes('declaration');
+
+      if (!isLabel && !isInvoice) {
+        console.log(`Skipping page ${i + 1}: not a label or invoice`);
+        continue;
+      }
+
+      // Copy page for both label and invoice
       const [labelPage] = await outputPdf.copyPages(srcPdf, [i]);
       const [invoicePage] = await outputPdf.copyPages(srcPdf, [i]);
 
       // Crop and scale label
-      labelPage.setCropBox(labelCrop.x, labelCrop.y, labelCrop.width, labelCrop.height);
-      labelPage.setMediaBox(0, 0, labelCrop.width, labelCrop.height);
-      const labelScale = Math.min(2126 / labelCrop.width, 3543 / labelCrop.height);
-      labelPage.scale(labelScale, labelScale);
-      outputPdf.addPage(labelPage);
+      if (isLabel) {
+        labelPage.setCropBox(labelCrop.x, labelCrop.y, labelCrop.width, labelCrop.height);
+        labelPage.setMediaBox(0, 0, labelCrop.width, labelCrop.height);
+        const labelScale = Math.min(2126 / labelCrop.width, 3543 / labelCrop.height);
+        labelPage.scale(labelScale, labelScale);
+        outputPdf.addPage(labelPage);
+        validPages++;
+        console.log(`Added label page ${i + 1}`);
+      }
 
       // Crop and scale invoice
-      invoicePage.setCropBox(invoiceCrop.x, invoiceCrop.y, invoiceCrop.width, invoiceCrop.height);
-      invoicePage.setMediaBox(0, 0, invoiceCrop.width, invoiceCrop.height);
-      const invoiceScale = Math.min(2126 / invoiceCrop.width, 3543 / invoiceCrop.height);
-      invoicePage.scale(invoiceScale, invoiceScale);
-      outputPdf.addPage(invoicePage);
+      if (isInvoice) {
+        invoicePage.setCropBox(invoiceCrop.x, invoiceCrop.y, invoiceCrop.width, invoiceCrop.height);
+        invoicePage.setMediaBox(0, 0, invoiceCrop.width, invoiceCrop.height);
+        const invoiceScale = Math.min(2126 / invoiceCrop.width, 3543 / invoiceCrop.height);
+        invoicePage.scale(invoiceScale, invoiceScale);
+        outputPdf.addPage(invoicePage);
+        validPages++;
+        console.log(`Added invoice page ${i + 1}`);
+      }
+    }
+
+    if (validPages === 0) {
+      throw new Error('No valid label or invoice pages found in the PDF');
     }
 
     const outputBytes = await outputPdf.save();
@@ -123,7 +143,7 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     // Clean up uploaded file
     await fs.unlink(req.file.path);
 
-    res.json({ file: `/outputs/${filename}`, cropUsed: { labelCrop, invoiceCrop } });
+    res.json({ file: `/outputs/${filename}`, cropUsed: { labelCrop, invoiceCrop }, pagesProcessed: validPages });
   } catch (err) {
     console.error('Processing error:', err);
     res.status(500).json({ error: err.message });
