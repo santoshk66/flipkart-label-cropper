@@ -7,7 +7,9 @@ import { PDFDocument } from 'pdf-lib';
 
 const app = express();
 app.use(cors());
+// Serve frontend and output PDFs
 app.use(express.static('public'));
+app.use('/outputs', express.static(path.join(process.cwd(), 'outputs')));
 
 async function ensureDirs() {
   const dirs = ['uploads', 'outputs'];
@@ -62,12 +64,15 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
     const labelsBytes = await labelsPdf.save();
     const invBytes = await invoicesPdf.save();
 
-    const labelsPath = path.join('outputs', 'labels_' + Date.now() + '.pdf');
-    const invPath = path.join('outputs', 'invoices_' + Date.now() + '.pdf');
+    const labelsFilename = 'labels_' + Date.now() + '.pdf';
+    const invFilename = 'invoices_' + Date.now() + '.pdf';
+    const labelsPath = path.join('outputs', labelsFilename);
+    const invPath = path.join('outputs', invFilename);
     await fs.writeFile(labelsPath, labelsBytes);
     await fs.writeFile(invPath, invBytes);
 
-    res.json({ labels: labelsPath, invoices: invPath });
+    // Return relative URLs
+    res.json({ labels: '/outputs/' + labelsFilename, invoices: '/outputs/' + invFilename });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
